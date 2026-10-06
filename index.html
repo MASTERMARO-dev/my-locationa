@@ -1,99 +1,107 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>My Location</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>My Phone Locator</title>
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    text-align: center;
-    padding: 20px;
-    margin: 0;
-  }
-  button {
-    padding: 12px 20px;
-    font-size: 17px;
-    border-radius: 10px;
-    border: 0;
-    background: #007aff;
-    color: white;
-  }
-  #status {
-    white-space: pre-line;
-    margin: 20px 0;
-  }
-  #map {
-    width: 100%;
-    height: 450px;
-    border: 0;
-    border-radius: 12px;
-    display: none;
-  }
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:#111827}
+.wrap{max-width:720px;margin:auto;padding:22px 16px 40px}.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:16px;box-shadow:0 6px 24px rgba(0,0,0,.08)}
+h1{margin:0 0 6px;font-size:30px}.sub{color:#6b7280;margin:0 0 18px}.status{display:flex;align-items:center;gap:9px;font-weight:700;margin-bottom:16px}
+.dot{width:11px;height:11px;border-radius:50%;background:#9ca3af}.dot.live{background:#16a34a}.dot.error{background:#dc2626}
+button{width:100%;border:0;border-radius:14px;padding:14px 16px;font-size:17px;font-weight:700;margin-top:10px}
+#start{background:#2563eb;color:#fff}#stop{background:#e5e7eb;color:#111827}#copy{background:#111827;color:#fff}
+button:disabled{opacity:.45}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:#f9fafb;border-radius:14px;padding:13px}
+.label{color:#6b7280;font-size:13px}.value{font-size:17px;font-weight:700;margin-top:4px;word-break:break-word}
+iframe{width:100%;height:420px;border:0;border-radius:16px;display:none}.note{color:#6b7280;font-size:13px;line-height:1.5}
 </style>
 </head>
 <body>
-<h2>My Location</h2>
-<button onclick="getLocation()">Find My Location</button>
-<p id="status">Press the button to request your location.</p>
-<iframe id="map" loading="lazy"></iframe>
+<div class="wrap">
+<div class="card">
+<h1>📍 My Phone Locator</h1><p class="sub">Personal device location dashboard</p>
+<div class="status"><span id="dot" class="dot"></span><span id="status">Location sharing is stopped</span></div>
+<button id="start">Start Live Location</button><button id="stop" disabled>Stop Location Sharing</button>
+</div>
+
+<div class="card"><div class="grid">
+<div class="stat"><div class="label">Latitude</div><div class="value" id="lat">—</div></div>
+<div class="stat"><div class="label">Longitude</div><div class="value" id="lon">—</div></div>
+<div class="stat"><div class="label">Accuracy</div><div class="value" id="accuracy">—</div></div>
+<div class="stat"><div class="label">Last update</div><div class="value" id="updated">—</div></div>
+</div><button id="copy" disabled>Copy Current Coordinates</button></div>
+
+<div class="card"><iframe id="map" loading="lazy" title="Location map"></iframe></div>
+
+<div class="card"><strong>Device ID</strong>
+<p class="note">This random ID is stored in this browser. It is not your IMEI. A future secure server can use it to pair your own devices.</p>
+<div class="stat"><div class="value" id="deviceId">Creating…</div></div></div>
+
+<div class="card"><strong>Important</strong>
+<p class="note">This page can continuously update location while it is open and permission is granted. It cannot secretly locate a phone, locate an offline phone, or survive a factory reset. Those capabilities require an operating-system device-finding service.</p></div>
+</div>
 
 <script>
-function getLocation() {
-  const status = document.getElementById("status");
-  const map = document.getElementById("map");
+let watchId=null,currentPosition=null;
+const $=id=>document.getElementById(id);
 
-  if (!navigator.geolocation) {
-    status.textContent = "Geolocation is not supported by this WebView.";
-    return;
-  }
-
-  status.textContent = "Requesting your location...";
-
-  navigator.geolocation.getCurrentPosition(
-    function(position) {
-      const lat = position.coords.latitude;
-      const lon = position.coords.longitude;
-      const accuracy = Math.round(position.coords.accuracy);
-
-      status.textContent =
-        "Latitude: " + lat +
-        "\nLongitude: " + lon +
-        "\nAccuracy: about " + accuracy + " meters";
-
-      const delta = 0.01;
-
-      map.src =
-        "https://www.openstreetmap.org/export/embed.html?bbox=" +
-        (lon - delta) + "%2C" +
-        (lat - delta) + "%2C" +
-        (lon + delta) + "%2C" +
-        (lat + delta) +
-        "&layer=mapnik&marker=" +
-        lat + "%2C" + lon;
-
-      map.style.display = "block";
-    },
-    function(error) {
-      let message = "Unable to get your location.";
-
-      if (error.code === 1) {
-        message = "Location permission was denied. Allow location access for the app/WebView.";
-      } else if (error.code === 2) {
-        message = "Your location is currently unavailable.";
-      } else if (error.code === 3) {
-        message = "Location request timed out. Try again.";
-      }
-
-      status.textContent = message;
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 15000,
-      maximumAge: 0
-    }
-  );
+function getDeviceId(){
+ let id=localStorage.getItem("personalDeviceId");
+ if(!id){
+  const bytes=new Uint8Array(8); crypto.getRandomValues(bytes);
+  id="phone-"+Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
+  localStorage.setItem("personalDeviceId",id);
+ }
+ return id;
 }
+function setStatus(message,type=""){
+ $("status").textContent=message;
+ $("dot").className="dot "+type;
+}
+function updateMap(lat,lon){
+ const d=.006;
+ $("map").src="https://www.openstreetmap.org/export/embed.html?bbox="+
+ (lon-d)+"%2C"+(lat-d)+"%2C"+(lon+d)+"%2C"+(lat+d)+
+ "&layer=mapnik&marker="+lat+"%2C"+lon;
+ $("map").style.display="block";
+}
+function updatePosition(position){
+ currentPosition=position;
+ const lat=position.coords.latitude,lon=position.coords.longitude;
+ $("lat").textContent=lat.toFixed(7);
+ $("lon").textContent=lon.toFixed(7);
+ $("accuracy").textContent="±"+Math.round(position.coords.accuracy)+" m";
+ $("updated").textContent=new Date().toLocaleTimeString();
+ $("copy").disabled=false;
+ updateMap(lat,lon); setStatus("Live location is updating","live");
+}
+function handleError(error){
+ let m="Unable to get your location.";
+ if(error.code===1)m="Location permission was denied.";
+ if(error.code===2)m="Your location is currently unavailable.";
+ if(error.code===3)m="Location request timed out.";
+ setStatus(m,"error"); $("start").disabled=false; $("stop").disabled=true;
+}
+function startLocation(){
+ if(!navigator.geolocation){setStatus("Geolocation is not supported.","error");return;}
+ if(watchId!==null)return;
+ setStatus("Requesting location permission…"); $("start").disabled=true; $("stop").disabled=false;
+ watchId=navigator.geolocation.watchPosition(updatePosition,handleError,{
+  enableHighAccuracy:true,timeout:15000,maximumAge:5000
+ });
+}
+function stopLocation(){
+ if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+ setStatus("Location sharing is stopped"); $("start").disabled=false; $("stop").disabled=true;
+}
+$("start").onclick=startLocation;$("stop").onclick=stopLocation;
+$("copy").onclick=async()=>{
+ if(!currentPosition)return;
+ const t=currentPosition.coords.latitude+", "+currentPosition.coords.longitude;
+ try{await navigator.clipboard.writeText(t);$("copy").textContent="Copied!";
+ setTimeout(()=>$("copy").textContent="Copy Current Coordinates",1200)}catch{alert(t)}
+};
+$("deviceId").textContent=getDeviceId();
 </script>
-</body>
-</html>
+</body></html>
