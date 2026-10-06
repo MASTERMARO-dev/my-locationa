@@ -7,58 +7,162 @@
 <title>My Phone Locator</title>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:#111827}
-.wrap{max-width:720px;margin:auto;padding:22px 16px 40px}.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:16px;box-shadow:0 6px 24px rgba(0,0,0,.08)}
+.wrap{max-width:760px;margin:auto;padding:22px 16px 40px}.card{background:#fff;border-radius:20px;padding:20px;margin-bottom:16px;box-shadow:0 6px 24px rgba(0,0,0,.08)}
 h1{margin:0 0 6px;font-size:30px}.sub{color:#6b7280;margin:0 0 18px}.status{display:flex;align-items:center;gap:9px;font-weight:700;margin-bottom:16px}
 .dot{width:11px;height:11px;border-radius:50%;background:#9ca3af}.dot.live{background:#16a34a}.dot.error{background:#dc2626}
 button{width:100%;border:0;border-radius:14px;padding:14px 16px;font-size:17px;font-weight:700;margin-top:10px}
-#start{background:#2563eb;color:#fff}#stop{background:#e5e7eb;color:#111827}#copy{background:#111827;color:#fff}
-button:disabled{opacity:.45}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:#f9fafb;border-radius:14px;padding:13px}
+.primary{background:#2563eb;color:#fff}.secondary{background:#e5e7eb;color:#111827}.dark{background:#111827;color:#fff}
+button:disabled{opacity:.45}input{width:100%;padding:14px;border:1px solid #d1d5db;border-radius:12px;font-size:16px;margin-top:8px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:#f9fafb;border-radius:14px;padding:13px}
 .label{color:#6b7280;font-size:13px}.value{font-size:17px;font-weight:700;margin-top:4px;word-break:break-word}
 iframe{width:100%;height:420px;border:0;border-radius:16px;display:none}.note{color:#6b7280;font-size:13px;line-height:1.5}
+.device{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px;margin-top:8px;background:#f9fafb;border-radius:12px}
+.device button{width:auto;margin:0;padding:9px 12px;font-size:13px;background:#fee2e2;color:#991b1b}
+#message{margin-top:10px;font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
+
 <div class="card">
-<h1>📍 My Phone Locator</h1><p class="sub">Personal device location dashboard</p>
+<h1>📍 My Phone Locator</h1>
+<p class="sub">Personal device location dashboard</p>
 <div class="status"><span id="dot" class="dot"></span><span id="status">Location sharing is stopped</span></div>
-<button id="start">Start Live Location</button><button id="stop" disabled>Stop Location Sharing</button>
+<button id="start" class="primary">Start Live Location</button>
+<button id="stop" class="secondary" disabled>Stop Location Sharing</button>
 </div>
 
-<div class="card"><div class="grid">
+<div class="card">
+<h2>📱 Register My Phone</h2>
+<p class="note">
+Add an identifier for a phone you own. For a real production version, the identifier
+should be sent to a secure backend rather than stored in a public GitHub repository.
+</p>
+<input id="phoneId" type="text" placeholder="Enter your phone ID">
+<button id="register" class="primary">Register Device</button>
+<div id="message"></div>
+<div id="devices"></div>
+</div>
+
+<div class="card">
+<div class="grid">
 <div class="stat"><div class="label">Latitude</div><div class="value" id="lat">—</div></div>
 <div class="stat"><div class="label">Longitude</div><div class="value" id="lon">—</div></div>
 <div class="stat"><div class="label">Accuracy</div><div class="value" id="accuracy">—</div></div>
 <div class="stat"><div class="label">Last update</div><div class="value" id="updated">—</div></div>
-</div><button id="copy" disabled>Copy Current Coordinates</button></div>
+</div>
+<button id="copy" class="dark" disabled>Copy Current Coordinates</button>
+</div>
 
 <div class="card"><iframe id="map" loading="lazy" title="Location map"></iframe></div>
 
-<div class="card"><strong>Device ID</strong>
-<p class="note">This random ID is stored in this browser. It is not your IMEI. A future secure server can use it to pair your own devices.</p>
-<div class="stat"><div class="value" id="deviceId">Creating…</div></div></div>
+<div class="card">
+<strong>Current browser device ID</strong>
+<p class="note">This random ID is generated once for this browser. It is not an IMEI.</p>
+<div class="stat"><div class="value" id="deviceId">Creating…</div></div>
+</div>
 
-<div class="card"><strong>Important</strong>
-<p class="note">This page can continuously update location while it is open and permission is granted. It cannot secretly locate a phone, locate an offline phone, or survive a factory reset. Those capabilities require an operating-system device-finding service.</p></div>
+<div class="card">
+<strong>How the storage works right now</strong>
+<p class="note">
+Registered device IDs are kept in this browser's local storage and duplicate IDs are
+rejected. This is intentionally not a GitHub file database: a public repository should
+never contain live GPS locations or raw IMEIs.
+</p>
+</div>
+
 </div>
 
 <script>
 let watchId=null,currentPosition=null;
 const $=id=>document.getElementById(id);
+const STORAGE_KEY="registeredDevices_v1";
 
-function getDeviceId(){
- let id=localStorage.getItem("personalDeviceId");
+function normalizeId(value){
+ return value.trim().toLowerCase();
+}
+
+async function fingerprintId(value){
+ const data=new TextEncoder().encode(normalizeId(value));
+ const hash=await crypto.subtle.digest("SHA-256",data);
+ return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,"0")).join("");
+}
+
+function getDevices(){
+ try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]")}catch{return[]}
+}
+
+function saveDevices(devices){
+ localStorage.setItem(STORAGE_KEY,JSON.stringify(devices));
+ renderDevices();
+}
+
+function renderDevices(){
+ const box=$("devices"), devices=getDevices();
+ box.innerHTML="";
+ if(!devices.length)return;
+ devices.forEach(d=>{
+  const row=document.createElement("div");
+  row.className="device";
+  const text=document.createElement("div");
+  text.innerHTML="<strong>"+escapeHtml(d.name)+"</strong><br><small>Registered "+escapeHtml(d.created)+"</small>";
+  const remove=document.createElement("button");
+  remove.textContent="Remove";
+  remove.onclick=()=>{
+   saveDevices(getDevices().filter(x=>x.hash!==d.hash));
+   setMessage("Device removed.","");
+  };
+  row.append(text,remove); box.appendChild(row);
+ });
+}
+
+function escapeHtml(s){
+ return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+}
+
+function setMessage(text,type){
+ $("message").textContent=text;
+ $("message").style.color=type==="error"?"#dc2626":"#16a34a";
+}
+
+async function registerDevice(){
+ const raw=$("phoneId").value;
+ if(!raw.trim()){setMessage("Enter a device ID first.","error");return;}
+
+ const hash=await fingerprintId(raw);
+ const devices=getDevices();
+
+ if(devices.some(d=>d.hash===hash)){
+  setMessage("That device ID is already registered. It will not be added twice.","error");
+  return;
+ }
+
+ devices.push({
+  hash,
+  name:"My Phone",
+  created:new Date().toLocaleString()
+ });
+
+ saveDevices(devices);
+ $("phoneId").value="";
+ setMessage("Device registered successfully. Duplicate IDs are blocked.","");
+}
+
+function getBrowserDeviceId(){
+ let id=localStorage.getItem("browserDeviceId");
  if(!id){
   const bytes=new Uint8Array(8); crypto.getRandomValues(bytes);
   id="phone-"+Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
-  localStorage.setItem("personalDeviceId",id);
+  localStorage.setItem("browserDeviceId",id);
  }
  return id;
 }
+
 function setStatus(message,type=""){
  $("status").textContent=message;
  $("dot").className="dot "+type;
 }
+
 function updateMap(lat,lon){
  const d=.006;
  $("map").src="https://www.openstreetmap.org/export/embed.html?bbox="+
@@ -66,6 +170,7 @@ function updateMap(lat,lon){
  "&layer=mapnik&marker="+lat+"%2C"+lon;
  $("map").style.display="block";
 }
+
 function updatePosition(position){
  currentPosition=position;
  const lat=position.coords.latitude,lon=position.coords.longitude;
@@ -74,8 +179,10 @@ function updatePosition(position){
  $("accuracy").textContent="±"+Math.round(position.coords.accuracy)+" m";
  $("updated").textContent=new Date().toLocaleTimeString();
  $("copy").disabled=false;
- updateMap(lat,lon); setStatus("Live location is updating","live");
+ updateMap(lat,lon);
+ setStatus("Live location is updating","live");
 }
+
 function handleError(error){
  let m="Unable to get your location.";
  if(error.code===1)m="Location permission was denied.";
@@ -83,25 +190,39 @@ function handleError(error){
  if(error.code===3)m="Location request timed out.";
  setStatus(m,"error"); $("start").disabled=false; $("stop").disabled=true;
 }
+
 function startLocation(){
  if(!navigator.geolocation){setStatus("Geolocation is not supported.","error");return;}
  if(watchId!==null)return;
- setStatus("Requesting location permission…"); $("start").disabled=true; $("stop").disabled=false;
+ setStatus("Requesting location permission…");
+ $("start").disabled=true; $("stop").disabled=false;
  watchId=navigator.geolocation.watchPosition(updatePosition,handleError,{
   enableHighAccuracy:true,timeout:15000,maximumAge:5000
  });
 }
+
 function stopLocation(){
  if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}
- setStatus("Location sharing is stopped"); $("start").disabled=false; $("stop").disabled=true;
+ setStatus("Location sharing is stopped");
+ $("start").disabled=false; $("stop").disabled=true;
 }
-$("start").onclick=startLocation;$("stop").onclick=stopLocation;
+
+$("start").onclick=startLocation;
+$("stop").onclick=stopLocation;
+$("register").onclick=registerDevice;
+
 $("copy").onclick=async()=>{
  if(!currentPosition)return;
  const t=currentPosition.coords.latitude+", "+currentPosition.coords.longitude;
- try{await navigator.clipboard.writeText(t);$("copy").textContent="Copied!";
- setTimeout(()=>$("copy").textContent="Copy Current Coordinates",1200)}catch{alert(t)}
+ try{
+  await navigator.clipboard.writeText(t);
+  $("copy").textContent="Copied!";
+  setTimeout(()=>$("copy").textContent="Copy Current Coordinates",1200);
+ }catch{alert(t)}
 };
-$("deviceId").textContent=getDeviceId();
+
+$("deviceId").textContent=getBrowserDeviceId();
+renderDevices();
 </script>
-</body></html>
+</body>
+</html>
